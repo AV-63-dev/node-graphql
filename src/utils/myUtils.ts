@@ -1,6 +1,6 @@
 import type { UserEntity } from './DB/entities/DBUsers';
 
-export const testUUID = (uuid: string): boolean => (new RegExp(/^[0-9A-F]{8}-[0-9A-F]{4}-4[0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12}$/i)).test(uuid);
+export const testUUID = (uuid: string): boolean => (new RegExp('^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$')).test(uuid);
 
 export const spliceSubscribedToUserIds = (subscribedUser: UserEntity, likedUserID: string): boolean => {
     const index = subscribedUser.subscribedToUserIds.indexOf(likedUserID);
