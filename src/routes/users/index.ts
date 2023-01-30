@@ -6,11 +6,16 @@ import {
   subscribeBodySchema,
 } from './schemas';
 import type { UserEntity } from '../../utils/DB/entities/DBUsers';
+import { testUUID, spliceSubscribedToUserIds } from '../../utils/myUtils';
+import { HttpError } from '@fastify/sensible/lib/httpError';
 
 const plugin: FastifyPluginAsyncJsonSchemaToTs = async (
   fastify
 ): Promise<void> => {
-  fastify.get('/', async function (request, reply): Promise<UserEntity[]> {});
+
+  fastify.get('/', async function (request, reply): Promise<UserEntity[]> {
+    return await fastify.db.users.findMany();
+  });
 
   fastify.get(
     '/:id',
@@ -19,7 +24,11 @@ const plugin: FastifyPluginAsyncJsonSchemaToTs = async (
         params: idParamSchema,
       },
     },
-    async function (request, reply): Promise<UserEntity> {}
+    async function (request, reply): Promise<UserEntity | HttpError> {
+      const id = request.params.id;
+      const user = await fastify.db.users.findOne({ key: 'id', equals: id });
+      return user ? user : fastify.httpErrors.notFound('User not found');
+    }
   );
 
   fastify.post(
@@ -29,7 +38,14 @@ const plugin: FastifyPluginAsyncJsonSchemaToTs = async (
         body: createUserBodySchema,
       },
     },
-    async function (request, reply): Promise<UserEntity> {}
+    async function (request, reply): Promise<UserEntity | HttpError> {
+      const {firstName, lastName, email} = request.body;
+      if (firstName && lastName && email) {
+        return await fastify.db.users.create(request.body);
+      } else {
+        return fastify.httpErrors.badRequest('Error: body is not filled required properties');
+      }
+    }
   );
 
   fastify.delete(
@@ -39,7 +55,27 @@ const plugin: FastifyPluginAsyncJsonSchemaToTs = async (
         params: idParamSchema,
       },
     },
-    async function (request, reply): Promise<UserEntity> {}
+    async function (request, reply): Promise<UserEntity | HttpError> {
+      const id = request.params.id;
+      const user = await fastify.db.users.findOne({ key: 'id', equals: id });
+      if (!user) {
+        return fastify.httpErrors.badRequest('User not found');
+      };
+
+      const whoSubscribeUser = await fastify.db.users.findMany({key: 'subscribedToUserIds', inArray: id});
+      whoSubscribeUser.map(async (item) => {
+        spliceSubscribedToUserIds(item, id);
+        await fastify.db.users.change(item.id, item);
+      });
+
+      const posts = await fastify.db.posts.findMany({key: 'userId', equals: id});
+      posts.map(async (item) => await fastify.db.posts.delete(item.id) );
+
+      const profiles = await fastify.db.profiles.findMany({key: 'userId', equals: id});
+      profiles.map(async (item) => await fastify.db.profiles.delete(item.id) );
+
+      return await fastify.db.users.delete(id);
+    }
   );
 
   fastify.post(
@@ -50,7 +86,30 @@ const plugin: FastifyPluginAsyncJsonSchemaToTs = async (
         params: idParamSchema,
       },
     },
-    async function (request, reply): Promise<UserEntity> {}
+    async function (request, reply): Promise<UserEntity | HttpError> {
+      const likedUserID = request.params.id;
+      const likedUser = await fastify.db.users.findOne({ key: 'id', equals: likedUserID });
+      if (!likedUser) {
+        return fastify.httpErrors.notFound('Is no liked user');
+      };
+
+      const subscribedUserID = request.body.userId;
+      if (!testUUID(subscribedUserID)) {
+        return fastify.httpErrors.badRequest('Error: invalid userId');
+      };
+
+      const subscribedUser = await fastify.db.users.findOne({ key: 'id', equals: subscribedUserID });
+      if (!subscribedUser) {
+        return fastify.httpErrors.notFound('Is no subscribed user');
+      };
+
+      if (subscribedUser.subscribedToUserIds.includes(likedUserID)) {
+        return fastify.httpErrors.badRequest('Error: The user is already subscribed');
+      };
+
+      subscribedUser.subscribedToUserIds.push(likedUserID);
+      return fastify.db.users.change(subscribedUserID, subscribedUser);
+    }
   );
 
   fastify.post(
@@ -61,7 +120,29 @@ const plugin: FastifyPluginAsyncJsonSchemaToTs = async (
         params: idParamSchema,
       },
     },
-    async function (request, reply): Promise<UserEntity> {}
+    async function (request, reply): Promise<UserEntity | HttpError> {
+      const likedUserID = request.params.id;
+      const likedUser = await fastify.db.users.findOne({ key: 'id', equals: likedUserID });
+      if (!likedUser) {
+        return fastify.httpErrors.notFound('Is no liked user');
+      };
+
+      const subscribedUserID = request.body.userId;
+      if (!testUUID(subscribedUserID)) {
+        return fastify.httpErrors.badRequest('Error: invalid userId');
+      };
+
+      const subscribedUser = await fastify.db.users.findOne({ key: 'id', equals: subscribedUserID });
+      if (!subscribedUser) {
+        return fastify.httpErrors.notFound('Is no subscribed user');
+      };
+
+      if (spliceSubscribedToUserIds(subscribedUser, likedUserID)) {
+        return fastify.db.users.change(subscribedUserID, subscribedUser);
+      } else {
+        return fastify.httpErrors.badRequest('Error: The user is already unsubscribed');
+      };
+    }
   );
 
   fastify.patch(
@@ -72,7 +153,11 @@ const plugin: FastifyPluginAsyncJsonSchemaToTs = async (
         params: idParamSchema,
       },
     },
-    async function (request, reply): Promise<UserEntity> {}
+    async function (request, reply): Promise<UserEntity | HttpError> {
+      const id = request.params.id;
+      const user = await fastify.db.users.findOne({ key: 'id', equals: id });
+      return user ? await fastify.db.users.change(id, request.body) : fastify.httpErrors.badRequest('User not found');
+    }
   );
 };
 
